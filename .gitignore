@@ -1,0 +1,6 @@
+# 项目特定
+.env
+uploads/
+data/
+temp/
+milvus_data/
