@@ -179,8 +179,10 @@ fastapi_rag_project/
 │   │   └── agent_middleware.py     # Agent 中间件
 │   └── utils/
 │       └── utils.py                # 文件编码检测
-└── alembic/
-    └── versions/                   # 迁移脚本
+├── alembic/
+│    └── versions/                   # 迁移脚本
+└── frontend                         # 前端代码
+
 ```
 
 ## 数据流
@@ -234,3 +236,13 @@ LangGraph Agent 流式生成 → SSE 推送前端
 ## License
 
 MIT
+
+## 前端
+### 本地启动
+cd frontend
+
+npm install
+
+npm run dev
+
+访问 http://localhost:3000，自动跳转登录页。
