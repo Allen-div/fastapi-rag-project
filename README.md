@@ -123,7 +123,7 @@ GET /health
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/api/chat/stream` | SSE 流式对话 |
-| GET | `/api/chat/conversations?page=1&page_size=10` | 对话列表 |
+| GET | `/api/chat/conversation?page=1&page_size=10` | 对话列表 |
 
 ### 对话请求示例
 

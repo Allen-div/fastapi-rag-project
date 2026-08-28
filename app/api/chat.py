@@ -1,4 +1,5 @@
 import json
+import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.messages import AIMessageChunk, ToolMessage
@@ -7,13 +8,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.chat import ChatRequest, ConversationListResponse
-from app.services.chat_history_service import ChatHistoryService, ConversationService
+from app.schemas.chat import ChatRequest, ConversationListResponse, ConversationResponse, MessageListResponse
+from app.services.chat_history_service import ChatHistoryService, ConversationService, MessageService
 from app.services.llm_service import LLMService
 from app.services.rag_service import RAGService
 from fastapi.responses import StreamingResponse
 
 router = APIRouter()
+
+
+@router.post("/conversation", response_model=ConversationResponse)
+async def create_conversation(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """创建新对话"""
+    chat_service = ChatHistoryService(db)
+    conversation = await chat_service.create_conversation(
+        user_id=current_user.id,
+        title="新对话"
+    )
+    return conversation
 
 
 @router.post("/stream")
@@ -30,10 +45,14 @@ async def chat_stream(
     # 获取或者创建对话
     if request.thread_id:
         # 如果用户传了相应的thread_id，说明是继续老的聊天
-        conversations = await chat_service.get_user_conversations(current_user.id)
-        conv_exists = any(c.thread_id == request.thread_id for c in conversations)
-        if not conv_exists:
+        conversation = await chat_service.get_conversation_by_thread_id(request.thread_id)
+        if not conversation:
             raise HTTPException(status_code=404, detail="对话不存在或无权限访问")
+
+        # 若标题仍是占位符（"新对话"），用第一条消息更新标题
+        if conversation and conversation.title == "新对话":
+            conversation.title = request.query[:50] + "..."
+            await db.commit()
     else:
         # 用户新开聊天
         conversation = await chat_service.create_conversation(
@@ -126,7 +145,7 @@ async def chat_stream(
     )
 
 
-@router.get('/conversations', response_model=ConversationListResponse)
+@router.get('/conversation', response_model=ConversationListResponse)
 async def get_conversations(
         current_user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
@@ -141,3 +160,27 @@ async def get_conversations(
         "conversations": conversations,
         "total": total
     }
+
+
+@router.get('/messages', response_model=MessageListResponse)
+async def get_messages(
+        conversion_id: int,
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+):
+    t1 = time.time()
+    message_service = MessageService(db)
+    conversation_service = ConversationService(db)
+    conversion = await conversation_service.get_conversation(current_user.id, conversion_id)
+    if not conversion:
+        return HTTPException(
+            status_code=400,
+            detail="对话不存在"
+        )
+    messages, total = await message_service.get_messages(conversion_id)
+    print(f"----------{time.time() - t1}---------------")
+    return {
+        'messages': messages,
+        'total': total
+    }
+

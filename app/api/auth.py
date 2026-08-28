@@ -18,7 +18,10 @@ async def register(
     service = UserService(db)
     existing_user = await service.get_user_by_username(username=user_data.username)
     if existing_user:
-        raise ValueError(f"用户: username={user_data.username}已存在")
+        raise HTTPException(
+            status_code=400,
+            detail=f"用户: username={user_data.username}已存在"
+        )
 
     try:
         user = await service.create_user(user_data)

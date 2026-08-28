@@ -41,6 +41,12 @@ class ChatHistoryService:
             raise ValueError("对话不存在")
         return conversation.id
 
+    async def get_conversation_by_thread_id(self, thread_id: str) -> Conversation | None:
+        """根据 thread_id 获取对话"""
+        query = select(Conversation).where(Conversation.thread_id == thread_id)
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
     async def add_message(self, conversation_id: int, role: str, content: str) -> Message:
         """保存消息"""
         message = Message(
@@ -71,4 +77,28 @@ class ConversationService:
         docs = result.scalars().all()
         return docs, total
 
+    async def get_conversation(self, user_id:int, conversion_id:int) -> Conversation:
+        """获取对话"""
+        query = select(Conversation).filter(Conversation.id==conversion_id, Conversation.user_id==user_id)
+        result = await self.db.execute(query)
+        conversation = result.scalar_one_or_none()
+        return conversation
+
+
+class MessageService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_messages(self, conversation_id: int) -> tuple[
+        Sequence[Message], int | None]:
+        """获取某个对话消息历史"""
+        query = select(Message).filter(Message.conversation_id == conversation_id).order_by(Message.created_at.asc())
+        count_query = select(func.count()).select_from(Message).where(Message.conversation_id == conversation_id)
+
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar()
+
+        result = await self.db.execute(query)
+        messages = result.scalars().all()
+        return messages, total
 

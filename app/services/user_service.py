@@ -35,3 +35,9 @@ class UserService:
         except Exception as e:
             await self.db.rollback()
             raise ValueError(e)
+
+    async def get_user_by_id(self, user_id) -> Optional[User]:
+        """根据用户id查询用户"""
+        query = select(User).where(User.id == user_id)
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
