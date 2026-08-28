@@ -82,6 +82,9 @@ const inputQuery = ref('')
 const streaming = ref(false)
 const messagesContainer = ref(null)
 
+// 对话消息缓存：key = conversation.id，value = [{ role, content }]
+const messageCache = {}
+
 onMounted(async () => {
   await loadConversations()
 })
@@ -104,6 +107,14 @@ function startNewChat() {
 
 async function switchConversation(conv) {
   activeThreadId.value = conv.thread_id
+
+  // 命中缓存：直接展示，不再请求后端
+  if (messageCache[conv.id]) {
+    messages.value = messageCache[conv.id].map(m => ({ ...m }))
+    await scrollToBottom()
+    return
+  }
+
   messages.value = []
   loadingMessages.value = true
   try {
@@ -113,6 +124,8 @@ async function switchConversation(conv) {
       role: m.role === 'user' ? 'user' : 'assistant',
       content: m.content
     }))
+    // 写入缓存
+    messageCache[conv.id] = messages.value.map(m => ({ role: m.role, content: m.content }))
   } catch (e) {
     console.error('加载历史消息失败:', e)
   } finally {
@@ -174,6 +187,8 @@ async function sendMessage() {
               }
               // 刷新列表（标题可能已被后端更新）
               await loadConversations()
+              // 将本次对话的最新消息写入缓存
+              cacheActiveConversation()
             }
           } catch (e) { /* ignore parse errors */ }
         }
@@ -193,6 +208,14 @@ async function scrollToBottom() {
   await nextTick()
   const el = messagesContainer.value
   if (el) el.scrollTop = el.scrollHeight
+}
+
+// 将当前正在查看的对话消息写入缓存（按 conversation.id 索引）
+function cacheActiveConversation() {
+  const conv = conversations.value.find(c => c.thread_id === activeThreadId.value)
+  if (conv) {
+    messageCache[conv.id] = messages.value.map(m => ({ role: m.role, content: m.content }))
+  }
 }
 
 function formatTime(dateStr) {
