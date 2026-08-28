@@ -1,248 +1,154 @@
-# FastAPI RAG Project
+# FastAPI RAG 智能对话系统 — 项目描述
 
-基于 FastAPI 的 RAG（检索增强生成）对话系统，支持文档上传、向量化存储、语义检索和流式 AI 对话。
+## 一、项目概述
 
-## 功能特性
+本项目是一个基于 **FastAPI + Vue 3** 的全栈 RAG（检索增强生成）智能对话系统。用户上传文档后，系统自动完成文本解析、向量化入库；用户在聊天界面提问时，系统通过语义检索从向量库召回相关片段，交给大模型生成带上下文的流式回答。前后端分离，支持多用户、多会话、文档全生命周期管理。
 
-- **用户认证**：JWT 注册/登录，OAuth2 密码流
-- **文档管理**：上传、列表、删除，自动编码检测（支持 GBK/UTF-8 等）
-- **RAG 对话**：基于上传文档的智能问答，流式 SSE 推送
-- **向量检索**：Milvus 存储，COSINE 相似度搜索，IVF_FLAT 索引
-- **对话历史**：多轮对话支持，thread_id 关联，历史消息自动截断
-- **Agent 架构**：LangGraph Agent + before_model 中间件，可扩展工具调用
+**项目定位**：一个开箱即用的企业级 RAG 应用脚手架，覆盖「文档接入 → 知识入库 → 智能问答 → 会话管理」完整闭环。
 
-## 技术栈
+## 二、核心功能
 
-| 组件 | 技术 |
-|------|------|
-| Web 框架 | FastAPI + Uvicorn |
-| 关系数据库 | MySQL 8.x + SQLAlchemy 2.0 (aiomysql 异步驱动) |
-| 向量数据库 | Milvus (pymilvus MilvusClient) |
-| 大模型 | 阿里云百炼 - deepseek-v4-flash (对话) / text-embedding-v3 (嵌入) |
-| Agent 框架 | LangChain + LangGraph |
-| 认证 | JWT (python-jose + bcrypt) |
-| 数据库迁移 | Alembic |
-| 缓存 | Redis (已配置，待启用) |
-
-## 环境要求
-
-- Python 3.13+
-- MySQL 8.0+
-- Milvus 2.3+
-- Redis 6.0+ (可选)
-
-## 快速开始
-
-### 1. 克隆项目
-
-```bash
-git clone <repo-url>
-cd fastapi_rag_project
-```
-
-### 2. 安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-### 3. 配置环境变量
-
-复制 `.env` 文件并修改配置：
-
-```bash
-cp .env.example .env  # 或直接编辑 .env
-```
-
-关键配置项：
-
-```env
-# MySQL
-MYSQL_HOST=localhost
-MYSQL_PORT=23307
-MYSQL_USER=root
-MYSQL_PASSWORD=your_password
-MYSQL_DATABASE=fast_rag
-
-# Milvus
-MILVUS_HOST=localhost
-MILVUS_PORT=19530
-
-# 阿里云百炼
-ALIYUN_API_KEY=sk-your-api-key
-ALIYUN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-ALIYUN_MODEL=deepseek-v4-flash
-ALIYUN_EMBEDDING_MODEL=text-embedding-v3
-
-# 应用
-SECRET_KEY=your-secret-key
-DEBUG=True
-```
-
-### 4. 初始化数据库
-
-确保 MySQL 已创建对应数据库，然后运行 Alembic 迁移：
-
-```bash
-alembic upgrade head
-```
-
-### 5. 启动服务
-
-```bash
-python run.py
-```
-
-服务默认运行在 `http://0.0.0.0:8000`。
-
-## API 接口
-
-### 健康检查
-
-```
-GET /health
-```
-
-### 认证
-
-| 方法 | 路径 | 说明 |
+| 模块 | 功能 | 说明 |
 |------|------|------|
-| POST | `/api/auth/register` | 用户注册 |
-| POST | `/api/auth/login` | 用户登录（返回 JWT Token） |
+| 用户认证 | 注册 / 登录 / JWT | OAuth2 密码流，bcrypt 密码哈希，JWT 无状态鉴权 |
+| 文档管理 | 上传 / 列表 / 删除 | 拖拽上传，自动编码检测（GBK/UTF-8 等），分页管理 |
+| 知识入库 | 分块 → 向量化 → 入库 | 500 字符分块 + 50 重叠，DashScope 向量模型，Milvus 存储 |
+| 智能问答 | RAG 检索增强生成 | Milvus 余弦相似度 Top-K 召回，LangGraph Agent 流式生成 |
+| 流式输出 | SSE 逐字推送 | 打字机效果，前后端边生成边展示 |
+| 会话管理 | 多轮对话 / 历史记录 | thread_id 关联 LangGraph 状态，历史消息自动截断 |
+| 前端体验 | 左右分栏聊天 / 后台管理 | 用户消息右侧、AI 回复左侧，消息本地缓存免重复请求 |
 
-### 文档管理（需认证）
+## 三、技术架构
 
-| 方法 | 路径 | 说明 |
+### 整体架构
+
+```
+┌─────────────────────────────────────────────────────┐
+│                    前端 (Vue 3 + Vite)               │
+│   聊天页 / 登录注册 / 上传页 / 文档管理页            │
+└───────────────┬─────────────────────────────────────┘
+                │ HTTP / SSE (Vite Proxy 转发)
+┌───────────────▼─────────────────────────────────────┐
+│                 后端 (FastAPI)                       │
+│   Auth ── Document ── Chat(SSE) ── UserInfo         │
+│        │           │           │                    │
+│   UserService   RAGService  LLMService / Agent      │
+│        │           │           │                    │
+│   SQLAlchemy    Milvus     LangGraph + DashScope    │
+│   (async)       (向量库)    (Agent / 流式生成)      │
+└─────────────────────────────────────────────────────┘
+```
+
+### 技术栈明细
+
+| 分层 | 组件 | 用途 |
 |------|------|------|
-| POST | `/api/document/upload` | 上传文档（multipart/form-data） |
-| GET | `/api/document/documents?page=1&page_size=10` | 文档列表 |
-| DELETE | `/api/document/documents/{document_id}` | 删除文档 |
+| 前端框架 | Vue 3 + Vite + Pinia + Vue Router | 组件化 SPA，Composition API |
+| 前端请求 | Axios + fetch(SSE) | REST 调用 + 流式读取 |
+| 后端框架 | FastAPI + Uvicorn | 高性能异步 Web 框架 |
+| 关系库 | MySQL 8 + SQLAlchemy 2.0 + asyncmy/aiomysql | 用户/文档/会话/消息持久化 |
+| 向量库 | Milvus + pymilvus | 文本向量存储与相似度检索 |
+| 大模型 | 阿里云百炼 deepseek-v4-flash | 对话生成 |
+| 向量模型 | 阿里云百炼 text-embedding-v3 | 文本向量化（1024 维） |
+| Agent 框架 | LangChain + LangGraph | Agent 编排、状态管理、中间件 |
+| 认证 | python-jose + bcrypt | JWT 签发与校验 |
+| 迁移 | Alembic | 数据库版本管理 |
 
-### 对话（需认证）
+## 四、系统设计
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/chat/stream` | SSE 流式对话 |
-| GET | `/api/chat/conversation?page=1&page_size=10` | 对话列表 |
-
-### 对话请求示例
-
-```json
-POST /api/chat/stream
-Authorization: Bearer <token>
-
-{
-  "query": "这份文档的主要内容是什么？",
-  "thread_id": null,
-  "top_k": 5
-}
-```
-
-- `thread_id` 为 `null` 时创建新对话，传入已有 ID 则继续该对话
-- 响应为 SSE 事件流，事件类型：`ai_content`（AI 回复片段）、`done`（完成信号）
-
-## 项目结构
-
-```
-fastapi_rag_project/
-├── run.py                          # 启动入口
-├── requirements.txt                # 依赖列表
-├── alembic.ini                     # Alembic 配置
-├── .env                            # 环境变量
-├── app/
-│   ├── main.py                     # FastAPI 应用实例
-│   ├── core/
-│   │   ├── config.py               # 配置管理（pydantic-settings）
-│   │   ├── database.py             # 异步引擎 & Session 工厂
-│   │   ├── security.py             # JWT 工具 & 密码哈希
-│   │   ├── dependencies.py         # 认证依赖注入
-│   │   └── system_prompt.py        # RAG 系统提示词
-│   ├── models/
-│   │   ├── user.py                 # User ORM
-│   │   ├── chat.py                 # Conversation & Message ORM
-│   │   └── document.py             # Document ORM
-│   ├── schemas/
-│   │   ├── user.py                 # 用户请求/响应模型
-│   │   ├── chat.py                 # 对话请求/响应模型
-│   │   └── document.py             # 文档响应模型
-│   ├── api/
-│   │   ├── router.py               # 路由聚合
-│   │   ├── auth.py                 # 认证接口
-│   │   ├── chat.py                 # 对话接口
-│   │   └── document.py             # 文档接口
-│   ├── services/
-│   │   ├── rag_service.py          # RAG 核心逻辑
-│   │   ├── vector_service.py       # Milvus 向量操作
-│   │   ├── llm_service.py          # LLM & Embedding & Agent
-│   │   ├── chat_history_service.py # 对话历史 CRUD
-│   │   ├── user_service.py         # 用户 CRUD
-│   │   └── agent_middleware.py     # Agent 中间件
-│   └── utils/
-│       └── utils.py                # 文件编码检测
-├── alembic/
-│    └── versions/                   # 迁移脚本
-└── frontend                         # 前端代码
-
-```
-
-## 数据流
+### 数据流 — 文档入库
 
 ```
 用户上传文档
-    ↓
+   ↓
 自动编码检测 (chardet)
-    ↓
-文本分块 (500字符 + 50重叠)
-    ↓
-DashScope text-embedding-v3 向量化 (1024维)
-    ↓
-┌─────────────┬─────────────┐
-│   Milvus    │   MySQL     │
-│ (向量+文本)  │ (文档元信息) │
-└─────────────┴─────────────┘
+   ↓
+文本分块 (500 字符 + 50 重叠)
+   ↓
+text-embedding-v3 向量化 (1024 维)
+   ↓
+┌──────────────┬──────────────┐
+│   Milvus     │    MySQL     │
+│ 向量 + 文本  │ 文档元信息    │
+└──────────────┴──────────────┘
+```
 
+### 数据流 — 智能问答
+
+```
 用户提问
-    ↓
+   ↓
 查询向量化 → Milvus 检索 Top-K 相似片段
-    ↓
+   ↓
 构建 Prompt (系统提示 + 参考文档 + 用户问题)
-    ↓
-LangGraph Agent 流式生成 → SSE 推送前端
-    ↓
+   ↓
+LangGraph Agent 流式生成 → SSE 逐字推送前端
+   ↓
 保存对话记录到 MySQL
 ```
 
-## Milvus 集合结构
+### 后端分层
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | INT64 (PK, auto) | 主键 |
-| vector | FLOAT_VECTOR(1024) | 文本向量 |
-| text | VARCHAR(65535) | 原始文本 |
-| metadata | JSON | 元数据 (user_id, file_name, chunk_index) |
-| doc_id | VARCHAR(100) | 文档唯一标识 |
+```
+app/api/        路由层：auth / document / chat / user
+app/schemas/    Pydantic 数据模型（请求/响应校验）
+app/services/   业务层：RAG / 向量 / LLM / 会话历史 / Agent 中间件
+app/models/     SQLAlchemy ORM 模型（User / Conversation / Message / Document）
+app/core/       基础设施：配置 / 数据库引擎 / 安全认证 / 系统提示词
+```
 
-索引类型：IVF_FLAT，度量方式：COSINE。
+### 前端架构
 
-## 数据库表
+```
+frontend/
+├── src/router/     路由 + 登录守卫
+├── src/stores/     Pinia（认证状态、用户信息）
+├── src/utils/      Axios 封装（自动带 Token、401 拦截）
+└── src/views/
+    ├── Chat.vue        对话页（左侧会话列表 + 右侧流式聊天）
+    ├── Login / Register 认证页
+    └── admin/          上传页 + 文档管理页
+```
 
-| 表名 | 说明 |
-|------|------|
-| users | 用户信息 |
-| conversations | 对话会话，通过 thread_id 关联 LangGraph 状态 |
-| messages | 对话消息 (user/assistant/tool) |
-| documents | 上传文档元信息，通过 vector_id 关联 Milvus |
+## 五、关键技术点
 
-## License
+1. **流式对话**：后端 `agent.astream(stream_mode='messages')` 逐块 yield，SSE 格式推送；前端用 `fetch` + `ReadableStream` 解析，`reactive` 保证逐字渲染触发 Vue 响应式更新。
 
-MIT
+2. **Agent 架构**：基于 LangGraph 的 `create_agent`，通过 `before_model` 中间件处理历史消息，按 token 成本自动截断，可扩展工具调用。
 
-## 前端
-### 本地启动
+3. **向量检索**：Milvus 集合设计 `id + vector(1024) + text + metadata + doc_id`，IVF_FLAT 索引、COSINE 度量，按 `user_id` 隔离文档实现多租户。
+
+4. **多轮会话**：`thread_id` 贯穿 LangGraph 状态与 MySQL 会话记录，前端切换会话时命中本地缓存即秒开，不重复请求后端。
+
+5. **前后端分离**：Vite Proxy 将 `/api` 转发至后端，避免跨域；JWT 存储于 localStorage，Axios 拦截器统一注入与 401 处理。
+
+## 六、亮点与难点
+
+**亮点**
+- 完整的 RAG 闭环：从文档上传到向量化到智能问答，链路完整、可运维
+- 异步全链路：aiomysql/asyncmy + 异步引擎，天然支撑高并发
+- 优雅的流式体验：SSE + 打字机效果 + 自动滚动
+- 用户/文档/会话三级数据隔离
+
+**难点与解法**
+- 大模型流式与 RAG 检索的时序编排 → 采用 LangGraph Agent 统一编排
+- 多轮对话历史膨胀导致 token 超限 → 中间件截断策略
+- 中文文档乱码 → chardet 自动编码检测
+- 切换对话重复请求慢 → 前端消息缓存，命中本地直接展示
+- 数据库查询链路慢 → 连接池调优、驱动选型（asyncmy）、关闭 SQL echo
+
+## 七、运行方式
+
+```bash
+# 后端
+pip install -r requirements.txt
+alembic upgrade head        # 初始化数据库
+python run.py               # http://localhost:8000
+
+# 前端
 cd frontend
-
 npm install
+npm run dev                 # http://localhost:3000
+```
 
-npm run dev
-
-访问 http://localhost:3000，自动跳转登录页。
+测试入口：注册 → 登录 → 管理页上传文档 → 聊天页提问。
