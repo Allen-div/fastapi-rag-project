@@ -8,11 +8,11 @@ from app.core.database import Base
 class Conversation(Base):
     __tablename__ = "conversations"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    title = Column(String(200), default="新对话")
-    thread_id = Column(String(100), unique=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, comment="用户ID")
+    title = Column(String(200), default="新对话", comment="对话标题")
+    thread_id = Column(String(100), unique=True, nullable=False, comment="线程ID")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), comment="创建时间")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), comment="更新时间")
 
     user = relationship("User", backref="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
@@ -31,10 +31,10 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
-    role = Column(String(20), nullable=False)  # user, assistant, tool
-    content = Column(Text, nullable=False)
-    tool_calls = Column(JSON, nullable=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False, comment="对话ID")
+    role = Column(String(20), nullable=False, comment="角色")  # user, assistant, tool
+    content = Column(Text, nullable=False, comment="消息内容")
+    tool_calls = Column(JSON, nullable=True, comment="工具调用")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     conversation = relationship("Conversation", back_populates="messages")

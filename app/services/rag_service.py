@@ -1,9 +1,11 @@
+import os
 import uuid
 from typing import Dict, List, Tuple, Sequence
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logging import logger
 from app.models.document import Document
 from app.services.llm_service import LLMService
 from app.services.vector_service import VectorService
@@ -72,37 +74,6 @@ class RAGService:
             "doc_id": doc_id,
             "chunk_count": len(chunks)
         }
-
-    async def list_user_documents(self, user_id: int, page: int, page_size: int) -> tuple[
-        Sequence[Document], int | None]:
-        """查询用户上传的文件"""
-        query = select(Document).where(Document.user_id==user_id)
-        query_count = select(func.count()).select_from(Document).where(Document.user_id==user_id)
-        total_result = await self.db.execute(query_count)
-        total = total_result.scalar()
-
-        query = query.order_by(Document.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
-        result = await self.db.execute(query)
-        docs = result.scalars().all()
-        return docs, total
-
-    async def delete_document(self, userid: int, document_id: int):
-        """删除文档"""
-        query = select(Document).where(Document.id==document_id)
-        result = await self.db.execute(query)
-        document = result.scalar_one_or_none()
-        if not document:
-            raise ValueError(f"文档: id={document_id}不存在")
-        if document.user_id != userid:
-            raise ValueError(f"文档: user_id={document.user_id}, {userid}没有权限删除")
-
-        doc_id = document.vector_id
-        # 从Milvus删除
-        self.vector_service.delete_by_doc_id(doc_id)
-
-        # 从mysql删除
-        await self.db.delete(document)
-        await self.db.commit()
 
     async def get_relevant_documents(self, content: str, top_k: int) -> Sequence[Dict]:
         """根据文本，查询特征对应的文本"""

@@ -2,14 +2,14 @@
   <div class="admin-page">
     <div class="admin-header">
       <h2>上传文档</h2>
-      <p>上传文档后，系统将自动进行向量化处理，用于 RAG 对话检索</p>
+      <p>上传文档后，系统将保存到服务器，并由后台异步解析入库，用于 RAG 对话检索</p>
     </div>
 
     <div class="upload-zone" :class="{ dragging }" @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="handleDrop">
       <div class="upload-icon">📄</div>
       <p class="upload-text">拖拽文件到此处，或点击选择文件</p>
-      <p class="upload-hint">支持 .txt、.md、.pdf、.docx 等文本文件</p>
-      <input ref="fileInput" type="file" @change="handleFileChange" accept=".txt,.md,.pdf,.docx,.csv" hidden />
+      <p class="upload-hint">支持 .txt、.pdf、.doc、.docx、.csv、.json，最大 100MB</p>
+      <input ref="fileInput" type="file" @change="handleFileChange" accept=".txt,.pdf,.doc,.docx,.csv,.json" hidden />
       <button class="btn-select" @click="$refs.fileInput.click()">选择文件</button>
     </div>
 
@@ -21,11 +21,15 @@
     </div>
 
     <div v-if="result" class="upload-result">
-      <div class="result-icon">✅</div>
-      <div class="result-info">
-        <p><strong>{{ result.file_name }}</strong> 上传成功</p>
-        <p class="result-detail">文档 ID: {{ result.doc_id }} · 分块数: {{ result.chunk_count }}</p>
+      <div class="result-left">
+        <div class="result-icon">✅</div>
+        <div class="result-info">
+          <p><strong>{{ result.file_name }}</strong> 上传成功</p>
+          <p class="result-detail">{{ result.message }}</p>
+          <p class="result-detail">文档 ID: {{ result.doc_id }} · 任务 ID: {{ result.task_id }}</p>
+        </div>
       </div>
+      <router-link to="/admin/documents" class="btn-goto">查看进度</router-link>
     </div>
 
     <div v-if="error" class="upload-error">{{ error }}</div>
@@ -70,12 +74,12 @@ async function uploadFile(file) {
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: (e) => {
         if (e.total) {
-          progress.value = Math.round((e.loaded / e.total) * 70)
+          progress.value = Math.round((e.loaded / e.total) * 100)
         }
       }
     })
     progress.value = 100
-    statusText.value = '向量化处理完成'
+    statusText.value = '上传完成，后台处理中...'
     result.value = res.data
   } catch (e) {
     error.value = e.response?.data?.detail || '上传失败，请重试'
@@ -171,12 +175,32 @@ async function uploadFile(file) {
   border-radius: var(--radius);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
+}
+
+.result-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .result-icon { font-size: 24px; }
 .result-info p { font-size: 14px; }
 .result-detail { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+
+.btn-goto {
+  font-size: 13px;
+  color: var(--primary);
+  background: var(--primary-bg);
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  font-weight: 500;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.btn-goto:hover { background: #dde4ff; }
 
 .upload-error {
   margin-top: 24px;

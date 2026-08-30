@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     REDIS_HOST: str
     REDIS_PORT: int
     REDIS_DB: int = 0
+    REDIS_PASSWORD: Optional[str] = None  # 添加密码字段
+
+    @property
+    def REDIS_URL(self) -> str:
+        """生成 Redis URL"""
+        if self.REDIS_PASSWORD:
+            return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     # 使用 @property 或 @computed_field 动态生成URL
     @property

@@ -1,8 +1,11 @@
 <template>
   <div class="admin-page">
     <div class="admin-header">
-      <h2>文档管理</h2>
-      <p>管理已上传的文档，查看分块信息，删除不需要的文档</p>
+      <div>
+        <h2>文档管理</h2>
+        <p>管理已上传的文档，查看解析进度，删除不需要的文档</p>
+      </div>
+      <button class="btn-refresh" @click="refresh" :disabled="refreshing">刷新</button>
     </div>
 
     <div class="table-wrap">
@@ -12,6 +15,7 @@
             <th>文件名</th>
             <th>类型</th>
             <th>大小</th>
+            <th>状态</th>
             <th>分块数</th>
             <th>上传时间</th>
             <th>操作</th>
@@ -19,17 +23,23 @@
         </thead>
         <tbody>
           <tr v-for="doc in documents" :key="doc.id">
-            <td class="doc-name">{{ doc.file_name }}</td>
+            <td class="doc-name" :title="doc.error_message || doc.file_name">{{ doc.file_name }}</td>
             <td class="doc-type">{{ doc.file_type || '-' }}</td>
             <td>{{ formatSize(doc.file_size) }}</td>
-            <td>{{ doc.chunk_count }}</td>
+            <td>
+              <span class="status-badge" :class="statusClass(doc.status)">
+                <span v-if="doc.status === 'processing'" class="dot-spinner"></span>
+                {{ statusText(doc.status) }}
+              </span>
+            </td>
+            <td>{{ doc.chunk_count || '-' }}</td>
             <td>{{ formatTime(doc.created_at) }}</td>
             <td>
               <button class="btn-delete" @click="handleDelete(doc)">删除</button>
             </td>
           </tr>
           <tr v-if="documents.length === 0">
-            <td colspan="6" class="empty-row">暂无文档，请先上传</td>
+            <td colspan="7" class="empty-row">暂无文档，请先上传</td>
           </tr>
         </tbody>
       </table>
@@ -44,17 +54,28 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import api from '../../utils/api'
 
 const documents = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const refreshing = ref(false)
+
+let pollTimer = null
 
 const totalPages = computed(() => Math.ceil(total.value / pageSize.value) || 1)
 
+const STATUS_MAP = {
+  pending: '等待处理',
+  processing: '处理中',
+  completed: '已完成',
+  failed: '失败'
+}
+
 onMounted(() => loadDocuments())
+onUnmounted(() => stopPolling())
 
 async function loadDocuments() {
   try {
@@ -63,8 +84,33 @@ async function loadDocuments() {
     })
     documents.value = res.data.documents || []
     total.value = res.data.total || 0
+    updatePolling()
   } catch (e) {
     console.error('加载文档列表失败:', e)
+  } finally {
+    refreshing.value = false
+  }
+}
+
+async function refresh() {
+  refreshing.value = true
+  await loadDocuments()
+}
+
+// 只要存在未完成（pending/processing）的文档，就每 3 秒自动刷新一次
+function updatePolling() {
+  const hasProcessing = documents.value.some(d => d.status === 'pending' || d.status === 'processing')
+  if (hasProcessing && !pollTimer) {
+    pollTimer = setInterval(loadDocuments, 3000)
+  } else if (!hasProcessing && pollTimer) {
+    stopPolling()
+  }
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
   }
 }
 
@@ -81,6 +127,14 @@ async function handleDelete(doc) {
   } catch (e) {
     alert('删除失败: ' + (e.response?.data?.detail || '未知错误'))
   }
+}
+
+function statusText(status) {
+  return STATUS_MAP[status] || status || '-'
+}
+
+function statusClass(status) {
+  return 'status-' + status
 }
 
 function formatSize(bytes) {
@@ -105,6 +159,9 @@ function formatTime(dateStr) {
 
 .admin-header {
   margin-bottom: 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
 }
 
 .admin-header h2 {
@@ -117,6 +174,18 @@ function formatTime(dateStr) {
   font-size: 14px;
   color: var(--text-secondary);
 }
+
+.btn-refresh {
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  padding: 6px 16px;
+  border-radius: var(--radius);
+  transition: background 0.15s;
+}
+.btn-refresh:hover:not(:disabled) { background: var(--border-light); }
+.btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .table-wrap {
   background: var(--bg-white);
@@ -150,8 +219,40 @@ function formatTime(dateStr) {
 
 .doc-table tr:last-child td { border-bottom: none; }
 
-.doc-name { font-weight: 500; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-name {
+  font-weight: 500;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .doc-type { color: var(--text-secondary); font-size: 13px; }
+
+/* 状态徽章 */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+.status-pending { background: #fef3c7; color: #92400e; }
+.status-processing { background: #dbeafe; color: #1e40af; }
+.status-completed { background: #d1fae5; color: #065f46; }
+.status-failed { background: #fee2e2; color: #991b1b; }
+
+.dot-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(30, 64, 175, 0.3);
+  border-top-color: #1e40af;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .btn-delete {
   font-size: 13px;

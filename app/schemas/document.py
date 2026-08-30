@@ -1,13 +1,16 @@
 from datetime import datetime
 from typing import Optional, List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class DocumentUploadResponse(BaseModel):
-    doc_id: str
+    doc_id: int
     file_name: str
-    chunk_count: int
+    file_size: int
+    status: Optional[str] = None
+    task_id: Optional[str] = None
+    message: str
 
 
 class DocumentResponse(BaseModel):
@@ -17,10 +20,16 @@ class DocumentResponse(BaseModel):
     file_path: str
     file_type: str
     file_size: int
-    chunk_count: int
-    vector_id: str
+    chunk_count: Optional[int] = None
+    vector_id: Optional[str] = None
+    status: Optional[str] = None
+    error_message: Optional[str] = None
+    processed_at: Optional[datetime] = None
+    celery_task_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DocumentListResponse(BaseModel):
