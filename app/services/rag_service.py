@@ -76,25 +76,26 @@ class RAGService:
         }
 
     async def get_relevant_documents(self, content: str, top_k: int) -> Sequence[Dict]:
-        """根据文本，查询特征对应的文本"""
+        """根据查询文本做混合检索（稠密语义 + BM25 关键词，RRF 融合）"""
 
-        # 获取查询向量
+        # 获取查询向量（稠密）
         embedding_model = self.llm_service.get_embedding_model()
         query_vector = embedding_model.embed_query(content)
-        print(f"--------查询向量: {query_vector}-----------------------")
+        # print(f"--------查询向量: {query_vector}-----------------------")
 
-        # 向量查询
-        results = self.vector_service.search(query_vector, top_k)
-        print(f"---------查询结果：{results}--------------------")
+        # 混合检索：稠密向量 + BM25 关键词
+        results = self.vector_service.hybrid_search(query_vector, content, top_k)
+        # print(f"---------混合检索结果：{results}--------------------")
 
         relevant_docs = []
         if results and len(results) > 0:
             for result in results[0]:
+                entity = result.get("entity", {}) or {}
                 relevant_docs.append(
                     {
-                        "text": result.get("entity", {}).get("text", ""),
+                        "text": entity.get("text", ""),
                         "score": result.get("distance", 0),
-                        "metadata": result.get("entity", {}).get("metadata", {})
+                        "metadata": entity.get("metadata", {}),
                     }
                 )
         return relevant_docs

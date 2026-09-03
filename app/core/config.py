@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # Milvus配置
     MILVUS_HOST: str
     MILVUS_PORT: int = 19530
+    # 集合名（含混合检索 schema 的集合；旧集合 rag_collection 保留不破坏）
+    MILVUS_COLLECTION: str = "rag_collection_v2"
+    # 混合检索融合方式：rrf 或 weighted
+    HYBRID_RANKER: str = "rrf"
 
     # 阿里云百炼配置
     ALIYUN_API_KEY: str

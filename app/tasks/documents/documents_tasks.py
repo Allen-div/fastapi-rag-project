@@ -10,6 +10,7 @@ from sqlalchemy.pool import NullPool
 
 from app.celery_app import celery_app
 from app.core.config import settings
+from app.core.logging import logger
 from app.models.document import DocumentStatus
 from app.utils.document_utils import update_document_status, process_document_async
 
@@ -56,7 +57,7 @@ def process_document(self: Task, document_id: int, file_path: str, file_type: st
                         document_id, DocumentStatus.FAILED, error_message=str(e), db=db
                     )
             except Exception as update_error:
-                self.logger.error(f"更新文档失败状态异常: document_id={document_id}, error={update_error}")
+                logger.error(f"更新文档失败状态异常: document_id={document_id}, error={update_error}")
             raise e
         finally:
             await engine.dispose()

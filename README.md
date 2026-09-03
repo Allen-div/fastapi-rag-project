@@ -2,19 +2,19 @@
 
 ## 一、项目概述
 
-本项目是一个基于 **FastAPI + Vue 3** 的全栈 RAG（检索增强生成）智能对话系统。用户上传文档后，系统将文件保存到服务器并立即返回成功，后台通过 **Celery 异步任务**完成文档解析、向量化入库；用户在聊天界面提问时，系统通过语义检索从向量库召回相关片段，交给大模型生成带上下文的流式回答。前后端分离，支持多用户、多会话、文档全生命周期管理。
+本项目是一个基于 **FastAPI + Vue 3** 的全栈 RAG（检索增强生成）智能对话系统。用户上传文档后，系统将文件保存到服务器并立即返回成功，后台通过 **Celery 异步任务**完成文档解析、向量化入库；用户在聊天界面提问时，系统通过 **Milvus 混合检索**（稠密语义 + BM25 关键词）召回相关片段，交给大模型生成带上下文的流式回答。前后端分离，支持多用户、多会话、文档全生命周期管理。
 
-**项目定位**：一个开箱即用的企业级 RAG 应用脚手架，覆盖「文档接入 → 异步入库 → 智能问答 → 会话管理」完整闭环。
+**项目定位**：一个开箱即用的企业级 RAG 应用脚手架，覆盖「文档接入 → 异步入库 → 混合检索问答 → 会话管理」完整闭环。
 
 ## 二、核心功能
 
 | 模块 | 功能 | 说明 |
 |------|------|------|
-| 用户认证 | 注册 / 登录 / JWT | OAuth2 密码流，bcrypt 密码哈希，JWT 无状态鉴权 |
+| 用户认证 | 注册 / 登录 / JWT | OAuth2 密码流，bcrypt 密码哈希，JWT 无状态鉴权（免查库） |
 | 文档上传 | 多类型校验 + 异步处理 | 支持 txt/pdf/doc/docx/csv/json，100MB 限制，保存到 static 后立即返回，后台 Celery 异步入库 |
 | 文档管理 | 列表 / 删除 / 状态跟踪 | 文档状态机 pending/processing/completed/failed，前端轮询展示处理进度 |
-| 知识入库 | 加载 → 拆分 → 向量化 → 入库 | LangChain 文档加载器解析文件，RecursiveCharacterTextSplitter 拆分，DashScope 向量化，Milvus 存储 |
-| 智能问答 | RAG 检索增强生成 | Milvus 余弦相似度 Top-K 召回，LangGraph Agent 流式生成 |
+| 知识入库 | 加载 → 拆分 → 向量化 → 入库 | LangChain 文档加载器解析，RecursiveCharacterTextSplitter 拆分，DashScope 稠密向量化，Milvus 稠密 + BM25 稀疏双路入库 |
+| 智能问答 | RAG 混合检索增强生成 | Milvus Hybrid Search（稠密语义 + BM25 关键词，RRF 融合），LangGraph Agent 流式生成 |
 | 流式输出 | SSE 逐字推送 | 打字机效果，前后端边生成边展示 |
 | 会话管理 | 多轮对话 / 历史记录 | thread_id 关联 LangGraph 状态，历史消息自动截断 |
 | 前端体验 | 左右分栏聊天 / 后台管理 | 用户消息右侧、AI 回复左侧，消息本地缓存免重复请求 |
@@ -36,11 +36,11 @@
 │   UserService   RAGService  LLMService / Agent      │
 │        │           │           │                    │
 │   SQLAlchemy    Milvus     LangGraph + DashScope    │
-│   (async)       (向量库)    (Agent / 流式生成)      │
+│   (async)     (混合检索)    (Agent / 流式生成)      │
 └─────────────────────────────────────────────────────┘
 ┌─────────────────────────────────────────────────────┐
 │          Celery 异步任务 (Redis broker/backend)      │
-│   文档加载器 → 分块 → 向量化 → Milvus + MySQL 状态   │
+│   文档加载器 → 分块 → 稠密向量化 → Milvus 双路入库    │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -52,11 +52,11 @@
 | 前端请求 | Axios + fetch(SSE) | REST 调用 + 流式读取 |
 | 后端框架 | FastAPI + Uvicorn | 高性能异步 Web 框架 |
 | 异步任务 | Celery + Redis | 文档上传后的异步解析入库，broker/backend 均用 Redis |
-| 关系库 | MySQL 8 + SQLAlchemy 2.0 + asyncmy/aiomysql | 用户/文档/会话/消息持久化 |
-| 向量库 | Milvus + pymilvus | 文本向量存储与相似度检索 |
+| 关系库 | MySQL 5.7/8.0 + SQLAlchemy 2.0 + asyncmy | 用户/文档/会话/消息持久化 |
+| 向量库 | Milvus (≥2.5) + pymilvus | 混合检索：稠密向量存储 + BM25 稀疏向量，RRF 融合 |
 | 文档解析 | LangChain 文档加载器 + unstructured / pypdf 等 | 按文件类型加载 txt/csv/json/pdf/doc/docx |
 | 大模型 | 阿里云百炼 deepseek-v4-flash | 对话生成 |
-| 向量模型 | 阿里云百炼 text-embedding-v3 | 文本向量化（1024 维） |
+| 向量模型 | 阿里云百炼 text-embedding-v3 | 文本稠密向量化（1024 维） |
 | Agent 框架 | LangChain + LangGraph | Agent 编排、状态管理、中间件 |
 | 认证 | python-jose + bcrypt | JWT 签发与校验 |
 | 迁移 | Alembic | 数据库版本管理 |
@@ -82,8 +82,8 @@ Celery Worker 后台处理：
    ⑤ 更新状态 = processing
    ⑥ LangChain 文档加载器解析文件 (按类型选择 loader)
    ⑦ RecursiveCharacterTextSplitter 拆分 (220字符 + 80重叠)
-   ⑧ DashScope text-embedding-v3 向量化 (1024 维)
-   ⑨ 存入 Milvus (向量+文本+元数据)
+   ⑧ DashScope text-embedding-v3 稠密向量化 (1024 维)
+   ⑨ 存入 Milvus rag_collection_v2（稠密 vector + BM25 稀疏 vector 自动生成）
    ⑩ 更新状态 = completed（失败置 failed + error_message）
 ```
 
@@ -97,12 +97,35 @@ Celery Worker 后台处理：
 | pdf | `PyPDFLoader` | pypdf |
 | docx / doc | `UnstructuredWordDocumentLoader` | unstructured + LibreOffice(仅 doc) |
 
-### 数据流 — 智能问答
+### Milvus 集合结构（Hybrid Search）
+
+集合名 `rag_collection_v2`（可通过环境变量 `MILVUS_COLLECTION` 修改；需 Milvus ≥ 2.5 以支持 BM25 Function）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INT64 (PK, auto) | 主键 |
+| vector | FLOAT_VECTOR(1024) | 稠密语义向量（text-embedding-v3） |
+| text | VARCHAR(65535) | 原始文本（`enable_analyzer=True`，供 BM25 分词） |
+| sparse | SPARSE_FLOAT_VECTOR | BM25 稀疏向量（由 Milvus BM25 Function 依据 text 自动生成，无需应用层写入） |
+| metadata | JSON | 元数据（user_id、doc_id、file_type 等） |
+| doc_id | VARCHAR(100) | 文档唯一标识 |
+
+- 稠密索引：`IVF_FLAT` + `COSINE`（语义检索）
+- 稀疏索引：`SPARSE_INVERTED_INDEX` + `BM25`（关键词检索）
+- 融合：`RRFRanker`（默认）/ `WeightedRanker`（由 `HYBRID_RANKER` 切换）
+
+### 数据流 — 智能问答（混合检索）
 
 ```
 用户提问
    ↓
-查询向量化 → Milvus 检索 Top-K 相似片段
+① 稠密：query 经 text-embedding-v3 编码
+② 稀疏：query 原文交给 Milvus BM25 Function 分析
+   ↓
+Milvus Hybrid Search 两路 AnnSearch：
+   稠密 COSINE + 稀疏 BM25
+   ↓
+RRF 融合 Top-K 相关片段
    ↓
 构建 Prompt (系统提示 + 参考文档 + 用户问题)
    ↓
@@ -126,7 +149,7 @@ pending ──→ processing ──→ completed
 ```
 app/api/        路由层：auth / document / chat / user
 app/schemas/    Pydantic 数据模型（请求/响应校验）
-app/services/   业务层：RAG / 向量 / LLM / 会话历史 / 文档 / Agent 中间件
+app/services/   业务层：RAG / 向量(混合检索) / LLM / 会话历史 / 文档 / Agent 中间件
 app/tasks/      Celery 异步任务（文档解析入库）
 app/models/     SQLAlchemy ORM 模型（User / Conversation / Message / Document）
 app/core/       基础设施：配置 / 数据库引擎 / 安全认证 / 系统提示词 / 日志
@@ -152,11 +175,11 @@ frontend/
 
 2. **文档加载器**：按文件类型映射 LangChain 加载器，`txt/csv/json` 直接解析，`pdf` 用 PyPDFLoader，`doc/docx` 用 UnstructuredWordDocumentLoader，统一输出为 LangChain Document 列表后再拆分。
 
-3. **流式对话**：后端 `agent.astream(stream_mode='messages')` 逐块 yield，SSE 格式推送；前端用 `fetch` + `ReadableStream` 解析，`reactive` 保证逐字渲染触发 Vue 响应式更新。
+3. **混合检索（Hybrid Search）**：Milvus 集合同时包含稠密字段 `vector` 与稀疏字段 `sparse`，稀疏向量由 **BM25 Function** 依据 `text` 字段自动生成，应用层无需算稀疏向量。查询时并行执行两路 AnnSearch（稠密 COSINE + 稀疏 BM25），用 `RRFRanker` 融合结果（可切换 `WeightedRanker`），兼顾语义理解与关键词精确匹配。
 
-4. **Agent 架构**：基于 LangGraph 的 `create_agent`，通过 `before_model` 中间件处理历史消息，按 token 成本自动截断，可扩展工具调用。
+4. **流式对话**：后端 `agent.astream(stream_mode='messages')` 逐块 yield，SSE 格式推送；前端用 `fetch` + `ReadableStream` 解析，`reactive` 保证逐字渲染触发 Vue 响应式更新。
 
-5. **向量检索**：Milvus 集合设计 `id + vector(1024) + text + metadata + doc_id`，IVF_FLAT 索引、COSINE 度量，按 `user_id` 隔离文档实现多租户。
+5. **Agent 架构**：基于 LangGraph 的 `create_agent`，通过 `before_model` 中间件处理历史消息，按 token 成本自动截断，可扩展工具调用。
 
 6. **多轮会话**：`thread_id` 贯穿 LangGraph 状态与 MySQL 会话记录，前端切换会话时命中本地缓存即秒开，不重复请求后端。
 
@@ -165,7 +188,8 @@ frontend/
 ## 六、亮点与难点
 
 **亮点**
-- 完整的 RAG 闭环：从文档上传到异步入库到智能问答，链路完整、可运维
+- 完整的 RAG 闭环：从文档上传到异步入库到混合检索问答，链路完整、可运维
+- 混合检索：语义 + 关键词双路召回，RRF 融合，兼顾理解力与精确匹配
 - 异步解耦：Celery + Redis 将耗时解析任务从请求链路剥离，上传即返回，体验流畅
 - 多格式文档支持：txt/csv/json/pdf/doc/docx 统一接入
 - 优雅的流式体验：SSE + 打字机效果 + 自动滚动
@@ -175,10 +199,12 @@ frontend/
 - 大模型流式与 RAG 检索的时序编排 → 采用 LangGraph Agent 统一编排
 - 多轮对话历史膨胀导致 token 超限 → 中间件截断策略
 - 中文文档乱码 → chardet 自动编码检测
+- 中文关键词检索效果弱 → 默认 BM25 分词对中文有限，可升级 Milvus 配 jieba 分词或改用应用层稀疏编码
 - 异步任务与事件循环冲突 → 任务内独立引擎 + NullPool，规避跨循环复用
 - Celery 任务无法直接执行 async 函数 → 同步包装 + `asyncio.run` 驱动
+- MySQL 5.7 不支持窗口函数 → count 与分页分两次查询（认证环节已免查库，总体仍比原始实现少一次往返）
 - 切换对话重复请求慢 → 前端消息缓存，命中本地直接展示
-- 数据库查询链路慢 → 连接池调优、驱动选型（asyncmy）、关闭 SQL echo
+- 容器化中间件网络开销高 → 减少 MySQL 往返、驱动选型（asyncmy）、关闭 SQL echo、Milvus Client 单例化
 
 ## 七、运行方式
 
@@ -204,6 +230,10 @@ npm install
 npm run dev                 # http://localhost:3000
 ```
 
-测试入口：注册 → 登录 → 管理页上传文档（txt/pdf/docx 等）→ 文档列表查看处理进度 → 聊天页提问。
+测试入口：注册 → 登录 → 管理页上传文档（txt/pdf/docx 等）→ 文档列表查看处理进度 → 聊天页提问（语义 + 关键词混合检索）。
 
-> 提示：`.doc` 老版格式解析依赖系统安装 LibreOffice（`soffice` 命令）；若无需支持 `.doc`，可从后端允许类型中移除。
+> **可选环境变量**：
+> - `MILVUS_COLLECTION`：Milvus 集合名，默认 `rag_collection_v2`
+> - `HYBRID_RANKER`：融合算法 `rrf` / `weighted`，默认 `rrf`
+>
+> **提示**：`.doc` 老版格式解析依赖系统安装 LibreOffice（`soffice` 命令）；若无需支持 `.doc`，可从后端允许类型中移除。混合检索需 Milvus ≥ 2.5（BM25 Function 依赖）。
