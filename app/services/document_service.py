@@ -38,22 +38,23 @@ class DocumentService:
             raise ValueError(e)
 
     async def list_user_documents(self, user_id: int, page: int, page_size: int) -> tuple[Sequence[Document], int]:
-        """查询用户上传的文件（用窗口函数把 count 与分页合并为一次查询，减少一次 MySQL 往返）"""
-        total_col = func.count().over().label("total")
-        stmt = (
-            select(Document, total_col)
+        """查询用户上传的文件。
+
+        注意：MySQL 5.7 不支持窗口函数（COUNT(*) OVER()），因此 count 与分页需分开查询。
+        认证环节已改为免查库（JWT 直取），整体仍比原始实现少一次往返。
+        """
+        count_stmt = select(func.count()).select_from(Document).where(Document.user_id == user_id)
+        total = (await self.db.execute(count_stmt)).scalar() or 0
+
+        query = (
+            select(Document)
             .where(Document.user_id == user_id)
             .order_by(Document.created_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
-        rows = (await self.db.execute(stmt)).all()
-
-        if not rows:
-            return [], 0
-
-        total = int(rows[0].total)  # 每行都携带满足条件的总数
-        docs = [row[0] for row in rows]
+        result = await self.db.execute(query)
+        docs = result.scalars().all()
         return docs, total
 
     async def delete_document(self, userid: int, document_id: int):
