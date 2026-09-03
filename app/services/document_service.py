@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 from app.core.logging import logger
 from app.models import Document
 from app.models.document import DocumentStatus
+from app.services.vector_service import VectorService
 
 
 class DocumentService:
@@ -36,17 +37,23 @@ class DocumentService:
             await self.db.rollback()
             raise ValueError(e)
 
-    async def list_user_documents(self, user_id: int, page: int, page_size: int) -> tuple[
-        Sequence[Document], int | None]:
-        """查询用户上传的文件"""
-        query = select(Document).where(Document.user_id == user_id)
-        query_count = select(func.count()).select_from(Document).where(Document.user_id == user_id)
-        total_result = await self.db.execute(query_count)
-        total = total_result.scalar()
+    async def list_user_documents(self, user_id: int, page: int, page_size: int) -> tuple[Sequence[Document], int]:
+        """查询用户上传的文件（用窗口函数把 count 与分页合并为一次查询，减少一次 MySQL 往返）"""
+        total_col = func.count().over().label("total")
+        stmt = (
+            select(Document, total_col)
+            .where(Document.user_id == user_id)
+            .order_by(Document.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        rows = (await self.db.execute(stmt)).all()
 
-        query = query.order_by(Document.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
-        result = await self.db.execute(query)
-        docs = result.scalars().all()
+        if not rows:
+            return [], 0
+
+        total = int(rows[0].total)  # 每行都携带满足条件的总数
+        docs = [row[0] for row in rows]
         return docs, total
 
     async def delete_document(self, userid: int, document_id: int):
@@ -75,10 +82,10 @@ class DocumentService:
             except Exception as e:
                 logger.warning(f"删除文件失败: {document.file_path}, error={e}")
 
-        # 删除向量数据库中的数据
+        # 删除向量数据库中的数据（VectorService 为全局单例，懒连接）
         if document.vector_id:
             try:
-                self.vector_service.delete_by_doc_id(document.vector_id)
+                VectorService().delete_by_doc_id(document.vector_id)
             except Exception as e:
                 logger.warning(f"删除向量失败: {document.vector_id}, error={e}")
 

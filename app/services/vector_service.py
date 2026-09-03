@@ -4,7 +4,21 @@ from app.core.config import settings
 
 
 class VectorService:
+    """Milvus 操作封装（全局单例：进程内只连接/初始化一次，避免每个请求重复握手）"""
+
+    _instance: "VectorService | None" = None
+    _initialized: bool = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
+        # 单例：首次构造时连接 Milvus，之后复用同一 client
+        if VectorService._initialized:
+            return
+
         uri = f"http://{settings.MILVUS_HOST}:{settings.MILVUS_PORT}"
         print(f"-----------uri={uri}---------------")
 
@@ -22,6 +36,9 @@ class VectorService:
         self.embedding_dim = 1024  # text-embedding-v3 默认维度
         self.collection_name = "rag_collection"
         self._init_collection()
+
+        # 初始化成功后才标记，避免失败后跳过重试
+        VectorService._initialized = True
 
     def _init_collection(self):
         """初始化Milvus集合（完全使用 MilvusClient）"""
