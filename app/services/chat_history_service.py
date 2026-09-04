@@ -59,6 +59,16 @@ class ChatHistoryService:
         await self.db.refresh(message)
         return message
 
+    async def list_messages(self, conversation_id: int) -> Sequence[Message]:
+        """按时间正序取出某会话的全部历史消息（供组装对话上下文，无 count 查询）"""
+        query = (
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at.asc())
+        )
+        result = await self.db.execute(query)
+        return result.scalars().all()
+
 
 class ConversationService:
     def __init__(self, db: AsyncSession):

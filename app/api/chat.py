@@ -2,7 +2,7 @@ import json
 import time
 
 from fastapi import APIRouter, Depends, HTTPException
-from langchain_core.messages import AIMessageChunk, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, AIMessageChunk, ToolMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -99,6 +99,25 @@ async def chat_stream(
 
         """
 
+    # 组装历史消息：user -> HumanMessage, assistant -> AIMessage
+    # 注意：本次用户消息已在上方 add_message 保存，list_messages 升序取回后最后一条即本轮 user。
+    history_messages = await chat_service.list_messages(conversation_id)
+    messages = []
+    for msg in history_messages:
+        if msg.role == 'user':
+            messages.append(HumanMessage(content=msg.content))
+        elif msg.role == 'assistant':
+            messages.append(AIMessage(content=msg.content))
+        # tool 等其它角色忽略
+
+    # 将"当前提问"替换为带参考文档的完整 prompt（RAG 片段只在当次注入，不落库）。
+    # 正常情况下最后一条就是刚保存的本次用户消息；
+    # 若因任何边界情况最后一条不是 HumanMessage，则显式追加，确保当前问题一定进入上下文。
+    if messages and isinstance(messages[-1], HumanMessage):
+        messages[-1].content = user_prompt
+    else:
+        messages.append(HumanMessage(content=user_prompt))
+
     async def generate_sse():
         """sse生成数据"""
         full_response = ''
@@ -107,7 +126,7 @@ async def chat_stream(
         tool_calls = []
 
         async for chunk in llm_service.stream_agent_response(
-            user_prompt,
+            messages,
             request.thread_id,
             tools=None
         ):

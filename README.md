@@ -16,7 +16,7 @@
 | 知识入库 | 加载 → 拆分 → 向量化 → 入库 | LangChain 文档加载器解析，RecursiveCharacterTextSplitter 拆分，DashScope 稠密向量化，Milvus 稠密 + BM25 稀疏双路入库 |
 | 智能问答 | RAG 混合检索增强生成 | Milvus Hybrid Search（稠密语义 + BM25 关键词，RRF 融合），LangGraph Agent 流式生成 |
 | 流式输出 | SSE 逐字推送 | 打字机效果，前后端边生成边展示 |
-| 会话管理 | 多轮对话 / 历史记录 | thread_id 关联 LangGraph 状态，历史消息自动截断 |
+| 会话管理 | 多轮对话 / 历史记忆 | 每次提问从 MySQL 读取该会话历史，组装成 Human/AI 消息传给模型，中间件保留近 20 条 |
 | 前端体验 | 左右分栏聊天 / 后台管理 | 用户消息右侧、AI 回复左侧，消息本地缓存免重复请求 |
 
 ## 三、技术架构
@@ -114,7 +114,7 @@ Celery Worker 后台处理：
 - 稀疏索引：`SPARSE_INVERTED_INDEX` + `BM25`（关键词检索）
 - 融合：`RRFRanker`（默认）/ `WeightedRanker`（由 `HYBRID_RANKER` 切换）
 
-### 数据流 — 智能问答（混合检索）
+### 数据流 — 智能问答（混合检索 + 历史记忆）
 
 ```
 用户提问
@@ -127,11 +127,13 @@ Milvus Hybrid Search 两路 AnnSearch：
    ↓
 RRF 融合 Top-K 相关片段
    ↓
-构建 Prompt (系统提示 + 参考文档 + 用户问题)
+读取 MySQL 会话历史 → 组装 Human/AI 消息列表
+（user→HumanMessage、assistant→AIMessage，
+  当前问题替换为"参考文档+用户问题"的完整 prompt，不落库）
    ↓
-LangGraph Agent 流式生成 → SSE 逐字推送前端
+LangGraph Agent 流式生成（中间件保留最近 20 条）→ SSE 逐字推送前端
    ↓
-保存对话记录到 MySQL
+保存本次问答到 MySQL
 ```
 
 ### 文档状态机
@@ -179,9 +181,9 @@ frontend/
 
 4. **流式对话**：后端 `agent.astream(stream_mode='messages')` 逐块 yield，SSE 格式推送；前端用 `fetch` + `ReadableStream` 解析，`reactive` 保证逐字渲染触发 Vue 响应式更新。
 
-5. **Agent 架构**：基于 LangGraph 的 `create_agent`，通过 `before_model` 中间件处理历史消息，按 token 成本自动截断，可扩展工具调用。
+5. **Agent 架构**：基于 LangGraph 的 `create_agent`，通过 `before_model` 中间件处理历史消息，保留最近 20 条（含系统提示）再交给模型，可扩展工具调用。
 
-6. **多轮会话**：`thread_id` 贯穿 LangGraph 状态与 MySQL 会话记录，前端切换会话时命中本地缓存即秒开，不重复请求后端。
+6. **DB 驱动多轮记忆**：`stream_agent_response` 接收完整 LangChain 消息列表而非单条 query。每次提问先从 MySQL `messages` 表按时间升序读取该会话历史，`user → HumanMessage`、`assistant → AIMessage` 组装后传给 Agent；RAG 参考片段只拼进当前这一轮提问（不落库），避免过期片段污染后续历史。前端切换会话命中本地缓存，秒开不重复请求。
 
 7. **前后端分离**：Vite Proxy 将 `/api` 转发至后端，避免跨域；JWT 存储于 localStorage，Axios 拦截器统一注入与 401 处理。
 
@@ -193,6 +195,7 @@ frontend/
 - 异步解耦：Celery + Redis 将耗时解析任务从请求链路剥离，上传即返回，体验流畅
 - 多格式文档支持：txt/csv/json/pdf/doc/docx 统一接入
 - 优雅的流式体验：SSE + 打字机效果 + 自动滚动
+- 多轮对话记忆：MySQL 历史持久化 + 每次重建 Human/AI 上下文，中间件控制上下文长度
 - 用户/文档/会话三级数据隔离
 
 **难点与解法**
@@ -200,6 +203,7 @@ frontend/
 - 多轮对话历史膨胀导致 token 超限 → 中间件截断策略
 - 中文文档乱码 → chardet 自动编码检测
 - 中文关键词检索效果弱 → 默认 BM25 分词对中文有限，可升级 Milvus 配 jieba 分词或改用应用层稀疏编码
+- 多轮记忆丢失 → 每次请求从 MySQL 重建 Human/AI 消息列表传入 Agent，中间件裁剪保留近 20 条
 - 异步任务与事件循环冲突 → 任务内独立引擎 + NullPool，规避跨循环复用
 - Celery 任务无法直接执行 async 函数 → 同步包装 + `asyncio.run` 驱动
 - MySQL 5.7 不支持窗口函数 → count 与分页分两次查询（认证环节已免查库，总体仍比原始实现少一次往返）

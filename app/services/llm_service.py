@@ -62,11 +62,17 @@ class LLMService:
 
         return agent
 
-    async def stream_agent_response(self, query: str, thread_id: str, tools: list = None):
-        """流式调用agent， 使用sse推送"""
+    async def stream_agent_response(self, messages: list, thread_id: str, tools: list = None):
+        """流式调用 agent，使用 sse 推送。
+
+        :param messages: LangChain 消息列表（HumanMessage/AIMessage 历史 + 当前提问），
+                         由调用方从数据库历史组装并传入。
+        :param thread_id: 会话 thread_id
+        """
         agent = self.create_agent_with_middleware(tools)
+        print("---------len(messages)------:", len(messages))
         async for chunk in agent.astream(
-                {'messages': [HumanMessage(content=query)]},
+                {'messages': messages},
                 stream_mode='messages',
                 config={"configurable": {"thread_id": thread_id}}
         ):

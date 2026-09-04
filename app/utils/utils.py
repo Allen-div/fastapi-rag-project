@@ -1,5 +1,6 @@
 import chardet
 
+
 def decode_file_content(content: bytes) -> str:
     """解码文件内容，自动检测编码"""
     if not content:
